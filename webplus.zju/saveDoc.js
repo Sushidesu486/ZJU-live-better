@@ -19,6 +19,7 @@ import path from 'path';
 import { promisify } from 'util';
 import readline from 'readline';
 import stream from 'stream';
+import dingTalk from '../shared/dingtalk-webhook.js';
 
 // 将回调函数转换为Promise版本
 const pipeline = promisify(stream.pipeline);
@@ -250,6 +251,7 @@ async function main() {
     }
     
     console.log('所有操作完成！');
+    dingTalk(`[Webplus] 文档已保存: ${title} (${attachmentLinks.length} 个附件)`);
   } catch (error) {
     console.error(`发生错误: ${error.message}`);
   } finally {

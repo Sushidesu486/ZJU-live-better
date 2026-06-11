@@ -71,15 +71,17 @@ const TimeAgo = (time) => {
         ],
       });
       if(id==="__manual__"){
-        return inquirer.prompt({
-          type: "input",
-          name: "id",
-          message: "Please input the course ID:",
-        });
+        const manualInput = await inquirer.prompt([
+          { type: "input", name: "id", message: "Please input the course ID:" },
+          { type: "input", name: "courseName", message: "Please input the course name (e.g. 高等数学-张三):" },
+        ]);
+        return { id: manualInput.id, courseName: manualInput.courseName };
       }
-      return {id};
+      // Find the matching course name from choices
+      const selected = choices.find(c => c.value === id);
+      return { id, courseName: selected?.name || `course_${id}` };
     })
-    .then(({ id }) => {
+    .then(({ id, courseName }) => {
       // console.log(id);
 
       return classroom
@@ -87,9 +89,10 @@ const TimeAgo = (time) => {
           "https://yjapi.cmc.zju.edu.cn/courseapi/v2/course/catalogue?course_id=" +
             id
         )
-        .then((v) => v.json());
+        .then((v) => v.json())
+        .then((data) => ({ data, courseName }));
     })
-    .then((data) => {
+    .then(({ data, courseName }) => {
       const vlist = data.result.data;
       // console.log(vlist,vlist.filter(v=>v.status==="6"));
 
@@ -100,26 +103,26 @@ const TimeAgo = (time) => {
           value: vd,
           name: vd.title + " (" + TimeAgo(Number(vd.start_at)) + ")",
         }));
-      return ChooseVideo(choices);
+      return ChooseVideo(choices, courseName);
     });
 })();
 
-async function ChooseVideo(choices) {
-  const {course_id,sub_id} = await inquirer
+async function ChooseVideo(choices, courseName) {
+  const video = await inquirer
     .prompt({
       type: "list",
       name: "video",
       message: "Choose the video:",
       choices,
     }).then(v=>v.video);
-  // console.log(course_id,sub_id);
-    const exporter = new CourseExporter(course_id, sub_id, classroom);
+  // console.log(video);
+    const exporter = new CourseExporter(video.course_id, video.sub_id, classroom, courseName, video);
   try {
     await exporter.export();
   } catch (e) {
     console.error("Export failed:", e);
   }
-  ChooseVideo(choices);
+  ChooseVideo(choices, courseName);
 
 }
 
@@ -139,13 +142,31 @@ function pad(n) {
   return n.toString().padStart(2, "0");
 }
 
+function sanitizeFilename(name) {
+  return name.replace(/[<>:"/\\|?*\x00-\x1f]/g, "_").trim() || "untitled";
+}
+
+function formatDateDir(ts) {
+  // ts is a unix timestamp (seconds)
+  const d = new Date(Number(ts) * 1000);
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}_${pad(d.getHours())}-${pad(d.getMinutes())}`;
+}
+
 class CourseExporter {
-  constructor(courseId, subId, classroomInstance = classroom) {
+  constructor(courseId, subId, classroomInstance = classroom, courseName = "", videoInfo = {}) {
     this.courseId = courseId;
     this.subId = subId;
+
+    // Build clean folder names
+    const courseFolder = sanitizeFilename(courseName || `course_${courseId}`);
+    const lessonTitle = sanitizeFilename(videoInfo.title || `sub_${subId}`);
+    const dateStr = formatDateDir(videoInfo.start_at || Date.now() / 1000);
+    const lessonFolder = `${lessonTitle}-${dateStr}`;
+
     this.outputDir = path.join(
       process.env.CLASSROOM_DOWNLOAD_PATH || "./downloads",
-      `course_${courseId}_sub_${subId}`
+      courseFolder,
+      lessonFolder
     );
     this.pptData = [];
     this.subtitleData = [];

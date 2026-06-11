@@ -9,6 +9,7 @@ Modified by 5dbwat4
 import chalk from "chalk";
 import { COURSES, ZJUAM } from "login-zju";
 import "dotenv/config";
+import dingTalk from "../shared/dingtalk-webhook.js";
 import { pickCourseId } from "../shared/choose-a-course.js";
 
 const courses = new COURSES(
@@ -145,12 +146,28 @@ async function main() {
         .then((r) => r.json()),
     ]);
 
+    const courseName = await courses
+      .fetch(`https://courses.zju.edu.cn/api/course/${courseId}?fields=name`)
+      .then((r) => r.json())
+      .then((d) => d.course?.name || "未知课程")
+      .catch(() => "未知课程");
+
     displayScores(
       activityReadsData,
       homeworkScoresData,
       examScoresData,
       examsData
     );
+
+    // DingTalk notification
+    const ar = activityReadsData?.activity_reads || [];
+    const es = examScoresData?.exam_scores || [];
+    const scored = [...ar, ...es].filter(
+      (s) => s.score !== undefined && s.score !== null
+    );
+    if (scored.length > 0) {
+      dingTalk(`[Scores] ${courseName}: 已获取 ${scored.length} 条成绩数据`);
+    }
   } catch (error) {
     console.error(chalk.red("执行失败:"), error);
     process.exitCode = 1;

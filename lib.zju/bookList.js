@@ -3,6 +3,7 @@
 import { ZJUAM, APILIB } from "login-zju";
 import "dotenv/config";
 import inquirer from "inquirer";
+import dingTalk from "../shared/dingtalk-webhook.js";
 
 const am = new ZJUAM(process.env.ZJU_USERNAME, process.env.ZJU_PASSWORD);
 const apilib = new APILIB(am);
@@ -76,6 +77,22 @@ async function main() {
 
   console.log(`========== Overview ==========`);
   console.log(`  Current loans: ${loans.length}`);
+
+  // DingTalk notification for overdue / due-soon books
+  const overdueBooks = loans.filter(b => getDueStatus(b.z36?.["z36-due-date"]).isOverdue);
+  const dueSoonBooks = loans.filter(b => getDueStatus(b.z36?.["z36-due-date"]).isNearDue);
+  if (overdueBooks.length > 0 || dueSoonBooks.length > 0) {
+    let msg = `[图书馆] 共 ${loans.length} 本在借`;
+    if (overdueBooks.length > 0) {
+      msg += `\n${overdueBooks.length} 本已逾期:`;
+      msg += overdueBooks.map(b => `\n- ${b.z13?.["z13-title"] || "未知"}`).join('');
+    }
+    if (dueSoonBooks.length > 0) {
+      msg += `\n${dueSoonBooks.length} 本即将到期(7天内):`;
+      msg += dueSoonBooks.map(b => `\n- ${b.z13?.["z13-title"] || "未知"}`).join('');
+    }
+    dingTalk(msg);
+  }
   // console.log(`  Current holds: ${holds.length}`);
 
   let renewList = [];
@@ -158,6 +175,7 @@ async function main() {
       ok ? success++ : fail++;
     }
     console.log(`Done: ${success} OK, ${fail} failed`);
+    dingTalk(`[图书馆] 续借完成: ${success} 成功, ${fail} 失败`);
   }
 
 }

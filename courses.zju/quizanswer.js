@@ -9,6 +9,7 @@ import * as path from "path";
 import { fileURLToPath } from "url";
 
 import "dotenv/config";
+import dingTalk from "../shared/dingtalk-webhook.js";
 
 
 const courses = new COURSES(
@@ -88,6 +89,7 @@ const courses = new COURSES(
         if (quizChoices.length == 0) {
           console.log("No active quiz found.");
         } else {
+          dingTalk(`[Quiz] ${course.name}: 发现 ${quizChoices.length} 个活跃测验`);
           const { classroom } = await inquirer.prompt({
             type: "list",
             name: "classroom",
@@ -194,6 +196,7 @@ const courses = new COURSES(
             `
             );
             console.log("[+] HTML file generated at: ", outputfile);
+            dingTalk(`[Quiz] 答案已保存: ${course.name} - ${classroom.title}`);
           }
         }
 

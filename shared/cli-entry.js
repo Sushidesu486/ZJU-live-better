@@ -29,11 +29,11 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(__dirname, "..");
 
 function printUsage() {
-  console.log(`Usage: zlb <command>
+  console.log(`Usage: zbl <command>
 
 Commands:
-  menu                  Open the script selector
-  tui                   Open the daemon management TUI
+  menu                  Open the interactive menu
+  tui                   Open the background service manager
   start [service]       Start daemon or autosign in background
   stop [service]        Stop daemon or autosign
   restart [service]     Restart daemon or autosign
@@ -150,14 +150,15 @@ async function interactiveMenu() {
       {
         type: "list",
         name: "categoryId",
-        message: "请选择分类:",
+        message: "zbl 统一管理入口:",
         choices: [
+          { name: "后台服务管理", value: "__services__" },
+          new inquirer.Separator(),
           ...categories.map((category) => ({
             name: category.name,
             value: category.id,
           })),
           new inquirer.Separator(),
-          { name: "Daemon TUI", value: "__tui__" },
           { name: "退出", value: EXIT },
         ],
         pageSize: 12,
@@ -165,7 +166,7 @@ async function interactiveMenu() {
     ]);
 
     if (categoryId === EXIT) break;
-    if (categoryId === "__tui__") {
+    if (categoryId === "__services__") {
       await runNodeFile("shared/tui.js");
       continue;
     }

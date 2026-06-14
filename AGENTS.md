@@ -12,7 +12,7 @@ This repository is a Node.js ES module collection of standalone ZJU utility scri
 - `node shared/cli-entry.js help`: inspect the unified CLI without global linking.
 - `node shared/cli-entry.js start|stop|status|logs [daemon|autosign]`: manage background services.
 - `node shared/cli-entry.js actions`: list registered actions and bot-ready status.
-- `npm link` then `zlb` or `zbl`: expose the unified CLI globally.
+- `npm link` then `zbl` or `zlb`: expose the unified CLI globally.
 
 There is no build step; scripts run directly in Node.
 

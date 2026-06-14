@@ -99,7 +99,7 @@ async function sendMessage() {
 
 async function main() {
   while (true) {
-    const status = daemonStatus();
+    const status = serviceStatus("daemon");
     const autosignStatus = serviceStatus("autosign");
     const statusStr = status.running
       ? chalk.green(`● running (PID ${status.pid})`)

@@ -12,32 +12,30 @@ A collection of useful scripts helping you live better in ZJU.
 
 使用时，在working dir下运行`node path/to/script`，其中`path/to/script`是指向脚本的路径，例如`classroom.zju/generateCourseMd`
 
-也可以运行`npm link`将本项目链接到全局，然后可以直接在任意目录下运行`zlb`进入脚本选择。兼容别名 `zbl` 也指向同一个入口。
+也可以运行`npm link`将本项目链接到全局，然后可以直接在任意目录下运行`zbl`进入统一管理入口。兼容别名 `zlb` 也指向同一个入口。
 
 ## 统一入口
 
-`zlb` 现在同时负责脚本选择、daemon 管理和钉钉相关操作：
+`zbl` 现在同时负责脚本选择、后台服务管理和钉钉相关操作。日常使用直接运行：
 
 ```bash
-zlb menu              # 进入功能选择菜单
-zlb tui               # 打开 daemon 管理 TUI
-zlb start             # 后台启动 daemon
-zlb start autosign    # 后台启动自动签到
-zlb stop              # 停止 daemon
-zlb stop autosign     # 停止自动签到
-zlb restart           # 重启 daemon
-zlb status            # 查看 daemon 状态
-zlb status autosign   # 查看自动签到状态
-zlb services          # 查看所有后台服务
-zlb logs              # 追踪 daemon 日志
-zlb logs autosign     # 追踪自动签到日志
-zlb actions           # 查看已登记功能
-zlb run todolist      # 执行某个功能
-zlb full              # 手动执行全量汇总并推送
-zlb urgent            # 手动执行紧急汇总并推送
+zbl                   # 打开交互菜单，第一项是后台服务管理
 ```
 
-`./start.sh <command>` 保留为兼容入口，内部会转发到 `zlb` 的同一套 Node 实现。
+命令参数保留给脚本化和远程执行：
+
+```bash
+zbl start             # 后台启动 daemon
+zbl start autosign    # 后台启动自动签到
+zbl stop autosign     # 停止自动签到
+zbl restart autosign  # 重启自动签到
+zbl services          # 查看所有后台服务
+zbl logs autosign     # 追踪自动签到日志
+zbl full              # 手动执行全量汇总并推送
+zbl urgent            # 手动执行紧急汇总并推送
+```
+
+`./start.sh <command>` 保留为兼容入口，内部会转发到 `zbl` 的同一套 Node 实现。
 
 ## 钉钉 Bot 交互
 

@@ -1,121 +1,298 @@
 #!/usr/bin/env node
 
-import inquirer from 'inquirer';
-import { fork } from 'child_process';
-import path from 'path';
-import { fileURLToPath } from 'url';
-import dingTalk from './dingtalk-webhook.js';
+import "dotenv/config";
 
-const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+import { spawn } from "child_process";
+import fs from "fs";
+import inquirer from "inquirer";
+import path from "path";
+import readline from "readline";
+import { fileURLToPath } from "url";
+import {
+  formatActionList,
+  getAction,
+  getActionCategories,
+} from "./action-registry.js";
+import { runAction, runSummaryTasks } from "./action-runner.js";
+import dingTalk from "./dingtalk-webhook.js";
+import {
+  daemonStatus,
+  latestLogFile,
+  readLastLines,
+  restartDaemon,
+  startDaemon,
+  stopDaemon,
+} from "./service-manager.js";
 
-const BACK = '__back__';
-const EXIT = '__exit__';
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const projectRoot = path.resolve(__dirname, "..");
 
-const categories = {
-  '学在浙大': [
-    { name: '生成作业待办 (todolist)', value: 'courses.zju/todolist.js' },
-    { name: '可靠待办列表 (reliableTodolist)', value: 'courses.zju/reliableTodolist.js' },
-    { name: '下载课件 (materialDown)', value: 'courses.zju/materialDown.js' },
-    { name: '增量下载课件 (materialMaintainer)', value: 'courses.zju/materialMaintainer.js' },
-    { name: '初始化课件配置 (materialMaintainer_init)', value: 'courses.zju/materialMaintainer_init.js' },
-    { name: '自动签到 (autosign)', value: 'courses.zju/autosign.js' },
-    { name: '测验答案 (quizanswer)', value: 'courses.zju/quizanswer.js' },
-    { name: '观看视频 (watchVideo)', value: 'courses.zju/watchVideo.js' },
-    { name: '查看作业和考试分数 (scores)', value: 'courses.zju/scores.js' },
-  ],
-  '智云课堂': [
-    { name: '生成课程 Markdown (generateCourseMd)', value: 'classroom.zju/generateCourseMd.js' },
-    { name: '获取视频链接 (getVideoURL)', value: 'classroom.zju/getVideoURL.js' },
-  ],
-  '图书馆': [
-    { name: '查询已借阅图书并续借 (bookList)', value: 'lib.zju/bookList.js' },
-  ],
-  'Webplus': [
-    { name: '保存通知及附件 (saveDoc)', value: 'webplus.zju/saveDoc.js' },
-  ],
-  '钉钉机器人': [
-    { name: '发送消息', value: '__dingtalk_send__' },
-    { name: '测试连接', value: '__dingtalk_test__' },
-  ],
-};
+function printUsage() {
+  console.log(`Usage: zlb <command>
 
-function runScript(scriptPath) {
-  return new Promise((resolve) => {
-    const child = fork(path.join(projectRoot, scriptPath), [], {
-      cwd: projectRoot,
-      stdio: 'inherit',
-    });
-    child.on('exit', (code) => {
-      if (code !== 0 && code !== null) {
-        console.log(`\n\x1b[31mScript exited with error, exit code: ${code}\x1b[0m`);
-      }
+Commands:
+  menu                  Open the script selector
+  tui                   Open the daemon management TUI
+  start                 Start the daemon in background
+  stop                  Stop the daemon
+  restart               Restart the daemon
+  status                Show daemon status
+  logs                  Tail the latest daemon log
+  actions               List registered actions
+  run <action> [args]   Run a registered action
+  full                  Run full summary and push notifications
+  urgent                Run urgent summary and push notifications
+  send [message]        Send a DingTalk text message
+  test                  Send a DingTalk test message
+  help                  Show this help
+`);
+}
+
+async function pressEnter() {
+  console.log("\n按回车返回菜单...");
+  await new Promise((resolve) => {
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    rl.question("", () => {
+      rl.close();
       resolve();
     });
   });
 }
 
-async function main() {
+function runNodeFile(relativePath, args = []) {
+  return new Promise((resolve) => {
+    const child = spawn(process.execPath, [path.join(projectRoot, relativePath), ...args], {
+      cwd: projectRoot,
+      stdio: "inherit",
+      env: process.env,
+    });
+    child.on("exit", (code) => resolve(code || 0));
+  });
+}
+
+async function followLogs() {
+  const logFile = latestLogFile();
+  if (!logFile) {
+    console.error("No log files found");
+    process.exitCode = 1;
+    return;
+  }
+
+  console.log(`Tailing ${logFile} (Ctrl+C to exit)\n`);
+  const initial = readLastLines(logFile, 40);
+  if (initial) console.log(initial);
+
+  let lastSize = fs.statSync(logFile).size;
+  const watcher = fs.watch(logFile, () => {
+    try {
+      const stat = fs.statSync(logFile);
+      if (stat.size > lastSize) {
+        fs.createReadStream(logFile, { start: lastSize, end: stat.size }).pipe(process.stdout);
+        lastSize = stat.size;
+      } else if (stat.size < lastSize) {
+        lastSize = 0;
+      }
+    } catch {}
+  });
+
+  await new Promise((resolve) => {
+    process.on("SIGINT", () => {
+      watcher.close();
+      resolve();
+    });
+  });
+}
+
+async function runActionFromCli(actionId, args = []) {
+  const action = getAction(actionId);
+  if (!action) {
+    console.error(`Unknown action: ${actionId}`);
+    console.log(formatActionList());
+    process.exitCode = 1;
+    return;
+  }
+
+  const result = await runAction(action, args, {
+    allowInteractive: process.stdin.isTTY,
+    capture: false,
+    notify: true,
+  });
+  if (result.output) console.log(result.output);
+  if (!result.ok) process.exitCode = 1;
+}
+
+async function sendMessage(args) {
+  let msg = args.join(" ").trim();
+  if (!msg) {
+    const answer = await inquirer.prompt([
+      { type: "input", name: "msg", message: "输入消息内容:" },
+    ]);
+    msg = answer.msg.trim();
+  }
+  if (!msg) return;
+  await dingTalk(msg);
+  console.log("已发送");
+}
+
+async function interactiveMenu() {
+  const BACK = "__back__";
+  const EXIT = "__exit__";
+
   while (true) {
-    const { category } = await inquirer.prompt([
+    const categories = getActionCategories();
+    const { categoryId } = await inquirer.prompt([
       {
-        type: 'list',
-        name: 'category',
-        message: '请选择分类:',
-        choices: [...Object.keys(categories), new inquirer.Separator(), '退出'],
-        pageSize: 10,
+        type: "list",
+        name: "categoryId",
+        message: "请选择分类:",
+        choices: [
+          ...categories.map((category) => ({
+            name: category.name,
+            value: category.id,
+          })),
+          new inquirer.Separator(),
+          { name: "Daemon TUI", value: "__tui__" },
+          { name: "退出", value: EXIT },
+        ],
+        pageSize: 12,
       },
     ]);
 
-    if (category === '退出') break;
+    if (categoryId === EXIT) break;
+    if (categoryId === "__tui__") {
+      await runNodeFile("shared/tui.js");
+      continue;
+    }
 
-    const scripts = categories[category];
-    if (!scripts) break;
+    const category = categories.find((item) => item.id === categoryId);
+    if (!category) continue;
 
-    // Sub-menu loop
-    let stayInSubmenu = true;
-    while (stayInSubmenu) {
-      const { action } = await inquirer.prompt([
+    while (true) {
+      const { actionId } = await inquirer.prompt([
         {
-          type: 'list',
-          name: 'action',
-          message: `${category} >`,
+          type: "list",
+          name: "actionId",
+          message: `${category.name} >`,
           choices: [
-            { name: '← 返回上级', value: BACK },
+            { name: "返回上级", value: BACK },
             new inquirer.Separator(),
-            ...scripts,
+            ...category.actions.map((action) => ({
+              name: `${action.name} (${action.id})`,
+              value: action.id,
+            })),
+            ...(category.id === "dingtalk"
+              ? [{ name: "发送消息", value: "__dingtalk_send__" }]
+              : []),
           ],
-          pageSize: 12,
+          pageSize: 14,
         },
       ]);
 
-      if (action === BACK) break;
-
-      // DingTalk built-in actions
-      if (action === '__dingtalk_send__') {
-        const { msg } = await inquirer.prompt([
-          { type: 'input', name: 'msg', message: '输入要发送的消息:' },
-        ]);
-        if (msg.trim()) {
-          await dingTalk(msg.trim());
-          console.log('\x1b[32m已发送\x1b[0m');
-        }
-        continue;
-      }
-      if (action === '__dingtalk_test__') {
-        await dingTalk('[DingTalk] 连接测试成功！');
-        console.log('\x1b[32m测试消息已发送\x1b[0m');
+      if (actionId === BACK) break;
+      if (actionId === "__dingtalk_send__") {
+        await sendMessage([]);
+        await pressEnter();
         continue;
       }
 
-      // Run script, then return to sub-menu
-      console.log(`\x1b[32mStarting ${action}...\x1b[0m`);
-      await runScript(action);
-      console.log('\n\x1b[2m按回车返回菜单...\x1b[0m');
+      await runActionFromCli(actionId);
+      await pressEnter();
     }
   }
 }
 
+async function main() {
+  const [command, ...args] = process.argv.slice(2);
+
+  if (!command || command === "menu") {
+    await interactiveMenu();
+    return;
+  }
+
+  if (["help", "-h", "--help"].includes(command)) {
+    printUsage();
+    return;
+  }
+
+  if (command === "tui") {
+    process.exitCode = await runNodeFile("shared/tui.js", args);
+    return;
+  }
+
+  if (command === "start") {
+    const result = await startDaemon();
+    console.log(result.message);
+    process.exitCode = result.ok ? 0 : 1;
+    return;
+  }
+
+  if (command === "stop") {
+    const result = await stopDaemon();
+    console.log(result.message);
+    process.exitCode = result.ok ? 0 : 1;
+    return;
+  }
+
+  if (command === "restart") {
+    const result = await restartDaemon();
+    console.log(result.message);
+    process.exitCode = result.ok ? 0 : 1;
+    return;
+  }
+
+  if (command === "status") {
+    console.log(daemonStatus().message);
+    return;
+  }
+
+  if (command === "logs") {
+    await followLogs();
+    return;
+  }
+
+  if (command === "actions") {
+    console.log(formatActionList());
+    return;
+  }
+
+  if (command === "run") {
+    await runActionFromCli(args[0], args.slice(1));
+    return;
+  }
+
+  if (command === "full") {
+    const result = await runSummaryTasks(false, { notify: true });
+    console.log(result.output);
+    return;
+  }
+
+  if (command === "urgent") {
+    const result = await runSummaryTasks(true, { notify: true });
+    console.log(result.output);
+    return;
+  }
+
+  if (command === "send") {
+    await sendMessage(args);
+    return;
+  }
+
+  if (command === "test") {
+    await runActionFromCli("dingtalk-test");
+    return;
+  }
+
+  if (getAction(command)) {
+    await runActionFromCli(command, args);
+    return;
+  }
+
+  console.error(`Unknown command: ${command}`);
+  printUsage();
+  process.exitCode = 1;
+}
+
 main().catch((err) => {
-  console.error('An error occurred:', err);
+  console.error("Error:", err.message || err);
   process.exit(1);
 });

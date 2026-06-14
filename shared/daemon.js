@@ -6,6 +6,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import dingTalk from "./dingtalk-webhook.js";
 import { todoSummary, bookSummary } from "./summary-tasks.js";
+import { startDingTalkBotServer } from "./dingtalk-bot.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(__dirname, "..");
@@ -23,6 +24,7 @@ function todayLogFile() {
 }
 
 let logStream = null;
+let botServer = null;
 function getLogStream() {
   const target = todayLogFile();
   if (!logStream || logStream.path !== target) {
@@ -107,7 +109,8 @@ async function main() {
   writePid();
   log(`[Daemon] 服务已启动 (PID ${process.pid})`);
   log(`[Daemon] 推送时间: ${morningTime.h}:${String(morningTime.m).padStart(2, "0")} (全量), ${afternoonTime.h}:${String(afternoonTime.m).padStart(2, "0")} (紧急)`);
-  dingTalk(`[Daemon] 服务已启动，推送时间: ${process.env.SCHEDULE_MORNING || "08:00"} / ${process.env.SCHEDULE_AFTERNOON || "14:00"}`);
+  botServer = startDingTalkBotServer({ log });
+  await dingTalk(`[Daemon] 服务已启动，推送时间: ${process.env.SCHEDULE_MORNING || "08:00"} / ${process.env.SCHEDULE_AFTERNOON || "14:00"}`);
 
   // Check every 30 seconds
   const timer = setInterval(checkAndRun, 30_000);
@@ -115,17 +118,28 @@ async function main() {
   checkAndRun();
 
   // Graceful shutdown
-  function shutdown(sig) {
+  let shuttingDown = false;
+  async function shutdown(sig) {
+    if (shuttingDown) return;
+    shuttingDown = true;
     log(`[Daemon] Received ${sig}, shutting down...`);
     clearInterval(timer);
+    if (botServer) {
+      await botServer.close();
+      botServer = null;
+    }
     removePid();
     if (logStream) logStream.end();
-    dingTalk("[Daemon] 服务已停止");
+    await dingTalk("[Daemon] 服务已停止");
     process.exit(0);
   }
 
-  process.on("SIGTERM", () => shutdown("SIGTERM"));
-  process.on("SIGINT", () => shutdown("SIGINT"));
+  process.on("SIGTERM", () => {
+    shutdown("SIGTERM");
+  });
+  process.on("SIGINT", () => {
+    shutdown("SIGINT");
+  });
 }
 
 main().catch((e) => {

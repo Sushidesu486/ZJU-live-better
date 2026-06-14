@@ -3,8 +3,9 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {},
-  "bin":{
-    "zlb": "./shared/cli-entry.js"
+  "bin": {
+    "zlb": "./shared/cli-entry.js",
+    "zbl": "./shared/cli-entry.js"
   },
   "type": "module",
   "keywords": [],

@@ -1,6 +1,6 @@
 import fs from "fs";
 import path from "path";
-import { spawn } from "child_process";
+import { spawn, spawnSync } from "child_process";
 import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -16,6 +16,7 @@ const serviceDefinitions = {
     pidFile: path.join(logsDir, "daemon.pid"),
     stdoutLog: path.join(logsDir, "daemon-stdout.log"),
     stderrLog: path.join(logsDir, "daemon-stderr.log"),
+    systemdUnit: "zju-live-better.service",
   },
   autosign: {
     id: "autosign",
@@ -24,6 +25,7 @@ const serviceDefinitions = {
     pidFile: path.join(logsDir, "autosign.pid"),
     stdoutLog: path.join(logsDir, "autosign-stdout.log"),
     stderrLog: path.join(logsDir, "autosign-stderr.log"),
+    systemdUnit: "zju-autosign.service",
   },
 };
 
@@ -47,6 +49,27 @@ function getServiceDefinition(serviceId = "daemon") {
 
 function listServices() {
   return Object.values(serviceDefinitions);
+}
+
+function runUserSystemctl(args) {
+  return spawnSync("systemctl", ["--user", ...args], {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+}
+
+function hasSystemdUnit(service) {
+  if (!service.systemdUnit) return false;
+  const result = runUserSystemctl(["cat", service.systemdUnit]);
+  return result.status === 0;
+}
+
+function controlSystemdUnit(service, action) {
+  const result = runUserSystemctl([action, service.systemdUnit]);
+  return {
+    ok: result.status === 0,
+    message: [result.stdout, result.stderr].filter(Boolean).join("\n").trim(),
+  };
 }
 
 function getServicePid(serviceId = "daemon") {
@@ -88,6 +111,28 @@ async function waitForStatus(serviceId, expectedRunning, timeoutMs = 5_000) {
 async function startService(serviceId = "daemon", { wait = true } = {}) {
   const service = getServiceDefinition(serviceId);
   ensureLogsDir();
+
+  if (hasSystemdUnit(service)) {
+    const result = controlSystemdUnit(service, "start");
+    if (!result.ok) {
+      return {
+        ok: false,
+        changed: false,
+        pid: null,
+        message: `Failed to start ${service.name} via ${service.systemdUnit}: ${result.message}`,
+      };
+    }
+    const pid = wait ? await waitForStatus(service.id, true) : getServicePid(service.id);
+    return {
+      ok: Boolean(pid),
+      changed: true,
+      pid,
+      message: pid
+        ? `${service.name} started via ${service.systemdUnit} (PID ${pid})`
+        : `${service.name} start requested via ${service.systemdUnit}`,
+    };
+  }
+
   const currentPid = getServicePid(service.id);
   if (currentPid) {
     return {
@@ -133,6 +178,28 @@ async function startDaemon(options = {}) {
 
 async function stopService(serviceId = "daemon", { wait = true } = {}) {
   const service = getServiceDefinition(serviceId);
+
+  if (hasSystemdUnit(service)) {
+    const result = controlSystemdUnit(service, "stop");
+    if (!result.ok) {
+      return {
+        ok: false,
+        changed: false,
+        pid: getServicePid(service.id),
+        message: `Failed to stop ${service.name} via ${service.systemdUnit}: ${result.message}`,
+      };
+    }
+    const alivePid = wait ? await waitForStatus(service.id, false) : getServicePid(service.id);
+    return {
+      ok: !alivePid,
+      changed: true,
+      pid: alivePid,
+      message: alivePid
+        ? `${service.name} stop requested via ${service.systemdUnit} but PID ${alivePid} is still running`
+        : `${service.name} stopped via ${service.systemdUnit}`,
+    };
+  }
+
   const pid = getServicePid(service.id);
   if (!pid) {
     return {

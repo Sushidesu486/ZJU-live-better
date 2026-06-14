@@ -6,8 +6,28 @@ import { fileURLToPath } from "url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(__dirname, "..");
 const logsDir = path.join(projectRoot, "logs");
-const pidFile = path.join(logsDir, "daemon.pid");
 const daemonPath = path.join(__dirname, "daemon.js");
+
+const serviceDefinitions = {
+  daemon: {
+    id: "daemon",
+    name: "Daemon",
+    entryPath: daemonPath,
+    pidFile: path.join(logsDir, "daemon.pid"),
+    stdoutLog: path.join(logsDir, "daemon-stdout.log"),
+    stderrLog: path.join(logsDir, "daemon-stderr.log"),
+  },
+  autosign: {
+    id: "autosign",
+    name: "Auto Sign-in",
+    entryPath: path.join(projectRoot, "courses.zju/autosign.js"),
+    pidFile: path.join(logsDir, "autosign.pid"),
+    stdoutLog: path.join(logsDir, "autosign-stdout.log"),
+    stderrLog: path.join(logsDir, "autosign-stderr.log"),
+  },
+};
+
+const pidFile = serviceDefinitions.daemon.pidFile;
 
 function ensureLogsDir() {
   if (!fs.existsSync(logsDir)) fs.mkdirSync(logsDir, { recursive: true });
@@ -17,10 +37,23 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function getDaemonPid() {
+function getServiceDefinition(serviceId = "daemon") {
+  const service = serviceDefinitions[serviceId];
+  if (!service) {
+    throw new Error(`Unknown service: ${serviceId}`);
+  }
+  return service;
+}
+
+function listServices() {
+  return Object.values(serviceDefinitions);
+}
+
+function getServicePid(serviceId = "daemon") {
+  const service = getServiceDefinition(serviceId);
   let pid = null;
   try {
-    pid = Number.parseInt(fs.readFileSync(pidFile, "utf8").trim(), 10);
+    pid = Number.parseInt(fs.readFileSync(service.pidFile, "utf8").trim(), 10);
     if (!pid) return null;
   } catch {
     return null;
@@ -32,51 +65,57 @@ function getDaemonPid() {
   } catch (error) {
     if (error.code === "EPERM") return pid;
     try {
-      fs.unlinkSync(pidFile);
+      fs.unlinkSync(service.pidFile);
     } catch {}
     return null;
   }
 }
 
-async function waitForStatus(expectedRunning, timeoutMs = 5_000) {
+function getDaemonPid() {
+  return getServicePid("daemon");
+}
+
+async function waitForStatus(serviceId, expectedRunning, timeoutMs = 5_000) {
   const startedAt = Date.now();
   while (Date.now() - startedAt < timeoutMs) {
-    const pid = getDaemonPid();
+    const pid = getServicePid(serviceId);
     if (expectedRunning ? pid : !pid) return pid;
     await sleep(200);
   }
-  return getDaemonPid();
+  return getServicePid(serviceId);
 }
 
-async function startDaemon({ wait = true } = {}) {
+async function startService(serviceId = "daemon", { wait = true } = {}) {
+  const service = getServiceDefinition(serviceId);
   ensureLogsDir();
-  const currentPid = getDaemonPid();
+  const currentPid = getServicePid(service.id);
   if (currentPid) {
     return {
       ok: true,
       changed: false,
       pid: currentPid,
-      message: `Daemon already running (PID ${currentPid})`,
+      message: `${service.name} already running (PID ${currentPid})`,
     };
   }
 
-  const out = fs.openSync(path.join(logsDir, "daemon-stdout.log"), "a");
-  const err = fs.openSync(path.join(logsDir, "daemon-stderr.log"), "a");
-  const child = spawn(process.execPath, [daemonPath], {
+  const out = fs.openSync(service.stdoutLog, "a");
+  const err = fs.openSync(service.stderrLog, "a");
+  const child = spawn(process.execPath, [service.entryPath], {
     cwd: projectRoot,
     detached: true,
     stdio: ["ignore", out, err],
     env: process.env,
   });
+  fs.writeFileSync(service.pidFile, String(child.pid));
   child.unref();
 
-  const pid = wait ? await waitForStatus(true) : child.pid;
+  const pid = wait ? await waitForStatus(service.id, true) : child.pid;
   if (!pid) {
     return {
       ok: false,
       changed: false,
       pid: null,
-      message: "Failed to start daemon, check logs/daemon-stderr.log",
+      message: `Failed to start ${service.name}, check ${path.relative(projectRoot, service.stderrLog)}`,
     };
   }
 
@@ -84,18 +123,23 @@ async function startDaemon({ wait = true } = {}) {
     ok: true,
     changed: true,
     pid,
-    message: `Daemon started (PID ${pid})`,
+    message: `${service.name} started (PID ${pid})`,
   };
 }
 
-async function stopDaemon({ wait = true } = {}) {
-  const pid = getDaemonPid();
+async function startDaemon(options = {}) {
+  return startService("daemon", options);
+}
+
+async function stopService(serviceId = "daemon", { wait = true } = {}) {
+  const service = getServiceDefinition(serviceId);
+  const pid = getServicePid(service.id);
   if (!pid) {
     return {
       ok: true,
       changed: false,
       pid: null,
-      message: "Daemon is not running",
+      message: `${service.name} is not running`,
     };
   }
 
@@ -106,7 +150,7 @@ async function stopDaemon({ wait = true } = {}) {
       ok: false,
       changed: false,
       pid,
-      message: `Failed to stop daemon (PID ${pid}): ${error.message}`,
+      message: `Failed to stop ${service.name} (PID ${pid}): ${error.message}`,
     };
   }
   if (!wait) {
@@ -114,25 +158,31 @@ async function stopDaemon({ wait = true } = {}) {
       ok: true,
       changed: true,
       pid,
-      message: `Stop signal sent to daemon (PID ${pid})`,
+      message: `Stop signal sent to ${service.name} (PID ${pid})`,
     };
   }
-  const alivePid = await waitForStatus(false);
+  const alivePid = await waitForStatus(service.id, false);
   try {
-    if (!alivePid) fs.unlinkSync(pidFile);
+    if (!alivePid) fs.unlinkSync(service.pidFile);
   } catch {}
 
   return {
     ok: !alivePid,
     changed: true,
     pid,
-    message: alivePid ? `Daemon did not stop (PID ${pid})` : `Daemon stopped (PID ${pid})`,
+    message: alivePid
+      ? `${service.name} did not stop (PID ${pid})`
+      : `${service.name} stopped (PID ${pid})`,
   };
 }
 
-async function restartDaemon() {
-  const stopped = await stopDaemon();
-  const started = await startDaemon();
+async function stopDaemon(options = {}) {
+  return stopService("daemon", options);
+}
+
+async function restartService(serviceId = "daemon") {
+  const stopped = await stopService(serviceId);
+  const started = await startService(serviceId);
   return {
     ok: stopped.ok && started.ok,
     message: `${stopped.message}\n${started.message}`,
@@ -141,23 +191,33 @@ async function restartDaemon() {
   };
 }
 
-function daemonStatus() {
-  const pid = getDaemonPid();
+async function restartDaemon() {
+  return restartService("daemon");
+}
+
+function serviceStatus(serviceId = "daemon") {
+  const service = getServiceDefinition(serviceId);
+  const pid = getServicePid(service.id);
   return {
     running: Boolean(pid),
     pid,
-    message: pid ? `Daemon running (PID ${pid})` : "Daemon not running",
+    message: pid ? `${service.name} running (PID ${pid})` : `${service.name} not running`,
   };
 }
 
-function latestLogFile() {
+function daemonStatus() {
+  return serviceStatus("daemon");
+}
+
+function latestLogFile(serviceId = "daemon") {
+  const service = getServiceDefinition(serviceId);
   if (!fs.existsSync(logsDir)) return null;
   const files = fs
     .readdirSync(logsDir)
-    .filter((file) => file.startsWith("daemon-") && file.endsWith(".log"))
-    .sort()
-    .reverse();
-  return files.length > 0 ? path.join(logsDir, files[0]) : null;
+    .filter((file) => file.startsWith(`${service.id}-`) && file.endsWith(".log"))
+    .map((file) => path.join(logsDir, file))
+    .sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs);
+  return files.length > 0 ? files[0] : null;
 }
 
 function readLastLines(filePath, count = 30) {
@@ -171,12 +231,19 @@ export {
   daemonStatus,
   ensureLogsDir,
   getDaemonPid,
+  getServiceDefinition,
+  getServicePid,
   latestLogFile,
+  listServices,
   logsDir,
   pidFile,
   projectRoot,
   readLastLines,
   restartDaemon,
+  restartService,
+  serviceStatus,
   startDaemon,
+  startService,
   stopDaemon,
+  stopService,
 };

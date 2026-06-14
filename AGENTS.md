@@ -10,7 +10,7 @@ This repository is a Node.js ES module collection of standalone ZJU utility scri
 - `npm install`: acceptable when following the README or maintaining `package-lock.json`.
 - `node courses.zju/todolist.js`: run one script directly from the repository root; replace the path with the script you are testing.
 - `node shared/cli-entry.js help`: inspect the unified CLI without global linking.
-- `node shared/cli-entry.js start|stop|status|logs`: manage the background daemon.
+- `node shared/cli-entry.js start|stop|status|logs [daemon|autosign]`: manage background services.
 - `node shared/cli-entry.js actions`: list registered actions and bot-ready status.
 - `npm link` then `zlb` or `zbl`: expose the unified CLI globally.
 

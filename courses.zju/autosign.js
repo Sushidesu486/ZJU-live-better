@@ -4,7 +4,29 @@ import "dotenv/config";
 import crypto from "crypto";
 import dingTalk from "../shared/dingtalk-webhook.js";
 import Decimal from "decimal.js";
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
 Decimal.set({ precision: 100 });
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const projectRoot = path.resolve(__dirname, "..");
+const logsDir = path.join(projectRoot, "logs");
+const pidFile = path.join(logsDir, "autosign.pid");
+
+if (!fs.existsSync(logsDir)) fs.mkdirSync(logsDir, { recursive: true });
+fs.writeFileSync(pidFile, String(process.pid));
+
+function cleanupAndExit(signal) {
+  try {
+    fs.unlinkSync(pidFile);
+  } catch {}
+  sendBoth(`[Auto Sign-in] 服务已停止 (${signal})`);
+  process.exit(0);
+}
+
+process.on("SIGTERM", () => cleanupAndExit("SIGTERM"));
+process.on("SIGINT", () => cleanupAndExit("SIGINT"));
 
 const CONFIG = {
   radarAt: "ZJGD1",
@@ -81,7 +103,7 @@ let we_are_bruteforcing = [];
 
 
 
-          v.rollcalls.forEach((rollcall) => {
+          for (const rollcall of v.rollcalls) {
             /**
              * It looks like 
              * 
@@ -120,24 +142,24 @@ let we_are_bruteforcing = [];
             console.log("[Auto Sign-in] Now answering rollcall #" + rollcallId);
             if (rollcall.is_radar) {
               sendBoth(`[Auto Sign-in] Answering new radar rollcall #${rollcallId}: ${rollcall.title} @ ${rollcall.course_title} by ${rollcall.created_by_name} (${rollcall.department_name})`);
-              answerRadarRollcall(RadarInfo[CONFIG.radarAt], rollcallId);
-              return;
+              await answerRadarRollcall(RadarInfo[CONFIG.radarAt], rollcallId);
+              continue;
             }
             if (rollcall.is_number) {
               if(we_are_bruteforcing.includes(rollcallId)){
                 console.log("[Auto Sign-in] We are already bruteforcing rollcall #" + rollcallId);
-                return;
+                continue;
               }
               we_are_bruteforcing.push(rollcallId);
               sendBoth(`[Auto Sign-in] Bruteforcing new number rollcall #${rollcallId}: ${rollcall.title} @ ${rollcall.course_title} by ${rollcall.created_by_name} (${rollcall.department_name})`);
-              batchNumberRollCall(rollcallId);
-              return;
+              await batchNumberRollCall(rollcallId);
+              continue;
             }
             // None of the above.
             console.log(`[Auto Sign-in] Rollcall #${rollcallId} has an unknown type and we cannot handle it yet.`)
             console.log("[Auto Sign-in] Rollcall details: ", rollcall);
             console.log("[Auto Sign-in] If you see this message, please consider \x1b[31m submitting an issue with the rollcall details above \x1b[0m so that we can support this type in the future. Thank you!");
-          });
+          }
         }
       }).catch((e) => {
         console.log(
@@ -329,7 +351,10 @@ async function answerRadarRollcall(radarXY, rid) {
   if (radarXY) {
     const outcome = await _req(radarXY[0], radarXY[1]);
     console.log("[Autosign][Try Config]", radarXY, outcome);
-    if (outcome?.status_name === "on_call_fine") return true;
+    if (outcome?.status_name === "on_call_fine") {
+      sendBoth(`[Auto Sign-in] Radar Rollcall ${rid} succeeded with configured location.`);
+      return true;
+    }
     radar_outcome.push([radarXY, outcome]);
   }
 
@@ -338,7 +363,10 @@ async function answerRadarRollcall(radarXY, rid) {
     const outcome = await _req(value[0], value[1]);
     console.log("[Autosign][Try Beacon]", key, value, outcome);
 
-    if (outcome?.status_name === "on_call_fine") return true;
+    if (outcome?.status_name === "on_call_fine") {
+      sendBoth(`[Auto Sign-in] Radar Rollcall ${rid} succeeded with beacon ${key}.`);
+      return true;
+    }
     radar_outcome.push([value, outcome]);
   }
 
@@ -355,6 +383,7 @@ async function answerRadarRollcall(radarXY, rid) {
 
   if (rawPoints.length < 3) {
     console.log("[Autosign][SphereFit] Not enough points.");
+    sendBoth(`[Auto Sign-in] Radar Rollcall ${rid} failed: not enough distance points.`);
     return false;
   }
 
@@ -365,10 +394,11 @@ async function answerRadarRollcall(radarXY, rid) {
   const finalOutcome = await _req(est.lon, est.lat);
 
   if (finalOutcome?.status_name === "on_call_fine") {
-    sendBoth(`[Autosign] Estimated position success: ${est.lon}, ${est.lat}`);
+    sendBoth(`[Auto Sign-in] Radar Rollcall ${rid} succeeded with estimated position: ${est.lon}, ${est.lat}.`);
     return true;
   }
 
+  sendBoth(`[Auto Sign-in] Radar Rollcall ${rid} failed after all location attempts.`);
   return false;
 }
 

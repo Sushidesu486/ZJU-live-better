@@ -16,12 +16,13 @@ import {
 import { runAction, runSummaryTasks } from "./action-runner.js";
 import dingTalk from "./dingtalk-webhook.js";
 import {
-  daemonStatus,
   latestLogFile,
+  listServices,
   readLastLines,
-  restartDaemon,
-  startDaemon,
-  stopDaemon,
+  restartService,
+  serviceStatus,
+  startService,
+  stopService,
 } from "./service-manager.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -33,11 +34,12 @@ function printUsage() {
 Commands:
   menu                  Open the script selector
   tui                   Open the daemon management TUI
-  start                 Start the daemon in background
-  stop                  Stop the daemon
-  restart               Restart the daemon
-  status                Show daemon status
-  logs                  Tail the latest daemon log
+  start [service]       Start daemon or autosign in background
+  stop [service]        Stop daemon or autosign
+  restart [service]     Restart daemon or autosign
+  status [service]      Show service status
+  services              List managed services
+  logs [service]        Tail the latest service log
   actions               List registered actions
   run <action> [args]   Run a registered action
   full                  Run full summary and push notifications
@@ -70,8 +72,12 @@ function runNodeFile(relativePath, args = []) {
   });
 }
 
-async function followLogs() {
-  const logFile = latestLogFile();
+function normalizeServiceId(value) {
+  return value || "daemon";
+}
+
+async function followLogs(serviceId = "daemon") {
+  const logFile = latestLogFile(serviceId);
   if (!logFile) {
     console.error("No log files found");
     process.exitCode = 1;
@@ -220,33 +226,40 @@ async function main() {
   }
 
   if (command === "start") {
-    const result = await startDaemon();
+    const result = await startService(normalizeServiceId(args[0]));
     console.log(result.message);
     process.exitCode = result.ok ? 0 : 1;
     return;
   }
 
   if (command === "stop") {
-    const result = await stopDaemon();
+    const result = await stopService(normalizeServiceId(args[0]));
     console.log(result.message);
     process.exitCode = result.ok ? 0 : 1;
     return;
   }
 
   if (command === "restart") {
-    const result = await restartDaemon();
+    const result = await restartService(normalizeServiceId(args[0]));
     console.log(result.message);
     process.exitCode = result.ok ? 0 : 1;
     return;
   }
 
   if (command === "status") {
-    console.log(daemonStatus().message);
+    console.log(serviceStatus(normalizeServiceId(args[0])).message);
+    return;
+  }
+
+  if (command === "services") {
+    for (const service of listServices()) {
+      console.log(`${service.id}: ${serviceStatus(service.id).message}`);
+    }
     return;
   }
 
   if (command === "logs") {
-    await followLogs();
+    await followLogs(normalizeServiceId(args[0]));
     return;
   }
 

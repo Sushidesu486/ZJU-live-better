@@ -3,7 +3,13 @@ import "dotenv/config";
 import express from "express";
 import { formatActionList, getAction } from "./action-registry.js";
 import { runAction, runSummaryTasks, truncateOutput } from "./action-runner.js";
-import { daemonStatus, startDaemon, stopDaemon } from "./service-manager.js";
+import {
+  listServices,
+  restartService,
+  serviceStatus,
+  startService,
+  stopService,
+} from "./service-manager.js";
 import { sendDingTalkText } from "./dingtalk-webhook.js";
 
 const DEFAULT_PORT = 8787;
@@ -54,14 +60,19 @@ function botHelp() {
   return [
     "ZJU-live-better bot commands:",
     "- help/menu/actions: 查看命令或功能列表",
-    "- status: 查看 daemon 状态",
+    "- services: 查看 daemon/autosign 状态",
+    "- status [daemon|autosign]: 查看服务状态",
+    "- start [daemon|autosign]: 启动服务",
+    "- stop [daemon|autosign]: 停止服务",
+    "- restart [daemon|autosign]: 重启服务",
     "- full: 执行全量汇总",
     "- urgent: 执行紧急汇总",
     "- run <action-id> [args...]: 执行可后台运行的功能",
     "- test: 发送钉钉测试消息",
-    "- stop: 停止当前 daemon",
     "",
     "示例:",
+    "- status autosign",
+    "- start autosign",
     "- run todolist",
     "- run reliable-todolist",
     "- run webplus-save-doc -u https://example.zju.edu.cn/...",
@@ -100,19 +111,51 @@ async function runBotCommand(text) {
   }
 
   if (["status", "状态"].includes(command)) {
-    return { text: daemonStatus().message };
+    return { text: serviceStatus(tokens[1] || "daemon").message };
+  }
+
+  if (["services", "服务"].includes(command)) {
+    return {
+      text: listServices()
+        .map((service) => `${service.id}: ${serviceStatus(service.id).message}`)
+        .join("\n"),
+    };
   }
 
   if (["start", "启动"].includes(command)) {
-    const result = await startDaemon();
+    const result = await startService(tokens[1] || "daemon");
     return { text: result.message };
   }
 
   if (["stop", "停止"].includes(command)) {
+    const serviceId = tokens[1] || "daemon";
+    if (serviceId !== "daemon") {
+      const result = await stopService(serviceId);
+      return { text: result.message };
+    }
     return {
       text: "Daemon stopping...",
-      afterResponse: () => setTimeout(() => stopDaemon({ wait: false }), 200),
+      afterResponse: () => setTimeout(() => stopService("daemon", { wait: false }), 200),
     };
+  }
+
+  if (["restart", "重启"].includes(command)) {
+    const result = await restartService(tokens[1] || "daemon");
+    return { text: result.message };
+  }
+
+  if (command === "autosign" || command === "自动签到") {
+    const action = tokens[1]?.toLowerCase() || "status";
+    if (["start", "启动"].includes(action)) {
+      return { text: (await startService("autosign")).message };
+    }
+    if (["stop", "停止"].includes(action)) {
+      return { text: (await stopService("autosign")).message };
+    }
+    if (["restart", "重启"].includes(action)) {
+      return { text: (await restartService("autosign")).message };
+    }
+    return { text: serviceStatus("autosign").message };
   }
 
   if (["full", "全量", "汇总"].includes(command)) {

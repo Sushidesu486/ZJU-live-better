@@ -22,10 +22,15 @@ A collection of useful scripts helping you live better in ZJU.
 zlb menu              # 进入功能选择菜单
 zlb tui               # 打开 daemon 管理 TUI
 zlb start             # 后台启动 daemon
+zlb start autosign    # 后台启动自动签到
 zlb stop              # 停止 daemon
+zlb stop autosign     # 停止自动签到
 zlb restart           # 重启 daemon
 zlb status            # 查看 daemon 状态
+zlb status autosign   # 查看自动签到状态
+zlb services          # 查看所有后台服务
 zlb logs              # 追踪 daemon 日志
+zlb logs autosign     # 追踪自动签到日志
 zlb actions           # 查看已登记功能
 zlb run todolist      # 执行某个功能
 zlb full              # 手动执行全量汇总并推送
@@ -61,6 +66,10 @@ https://your-domain.example/dingtalk/callback?token=自定义token
 ```text
 help
 status
+services
+status autosign
+start autosign
+stop autosign
 full
 urgent
 actions

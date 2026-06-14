@@ -10,11 +10,11 @@ import readline from "readline";
 import { runSummaryTasks } from "./action-runner.js";
 import dingTalk from "./dingtalk-webhook.js";
 import {
-  daemonStatus,
   latestLogFile,
   readLastLines,
-  startDaemon,
-  stopDaemon,
+  serviceStatus,
+  startService,
+  stopService,
 } from "./service-manager.js";
 
 async function pressAnyKey() {
@@ -28,8 +28,8 @@ async function pressAnyKey() {
   });
 }
 
-async function viewLogs() {
-  const logFile = latestLogFile();
+async function viewLogs(serviceId = "daemon") {
+  const logFile = latestLogFile(serviceId);
   if (!logFile) {
     console.log(chalk.yellow("No logs found"));
     await pressAnyKey();
@@ -100,19 +100,25 @@ async function sendMessage() {
 async function main() {
   while (true) {
     const status = daemonStatus();
+    const autosignStatus = serviceStatus("autosign");
     const statusStr = status.running
       ? chalk.green(`● running (PID ${status.pid})`)
       : chalk.red("○ stopped");
+    const autosignStatusStr = autosignStatus.running
+      ? chalk.green(`● autosign (PID ${autosignStatus.pid})`)
+      : chalk.red("○ autosign stopped");
 
     const { action } = await inquirer.prompt([
       {
         type: "list",
         name: "action",
-        message: `${chalk.bold("ZJU Daemon TUI")}  状态: ${statusStr}`,
+        message: `${chalk.bold("ZJU Service TUI")}  daemon: ${statusStr}  ${autosignStatusStr}`,
         choices: [
           { name: status.running ? "停止服务" : "启动服务", value: "toggle" },
+          { name: autosignStatus.running ? "停止自动签到" : "启动自动签到", value: "toggle-autosign" },
           { name: "刷新状态", value: "status" },
-          { name: "查看实时日志", value: "logs" },
+          { name: "查看 daemon 实时日志", value: "logs" },
+          { name: "查看自动签到实时日志", value: "logs-autosign" },
           new inquirer.Separator(),
           { name: "手动推送 - 全量汇总", value: "full" },
           { name: "手动推送 - 紧急汇总", value: "urgent" },
@@ -125,14 +131,23 @@ async function main() {
 
     if (action === "exit") break;
     if (action === "toggle") {
-      const result = status.running ? await stopDaemon() : await startDaemon();
+      const result = status.running ? await stopService("daemon") : await startService("daemon");
+      console.log(result.ok ? chalk.green(result.message) : chalk.red(result.message));
+      await pressAnyKey();
+    } else if (action === "toggle-autosign") {
+      const result = autosignStatus.running
+        ? await stopService("autosign")
+        : await startService("autosign");
       console.log(result.ok ? chalk.green(result.message) : chalk.red(result.message));
       await pressAnyKey();
     } else if (action === "status") {
       console.log(status.running ? chalk.green(status.message) : chalk.red(status.message));
+      console.log(autosignStatus.running ? chalk.green(autosignStatus.message) : chalk.red(autosignStatus.message));
       await pressAnyKey();
     } else if (action === "logs") {
-      await viewLogs();
+      await viewLogs("daemon");
+    } else if (action === "logs-autosign") {
+      await viewLogs("autosign");
     } else if (action === "full") {
       await manualTrigger(false);
     } else if (action === "urgent") {

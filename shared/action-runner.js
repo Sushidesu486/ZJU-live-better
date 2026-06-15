@@ -56,7 +56,7 @@ function runScript(action, args = [], options = {}) {
   const {
     allowInteractive = false,
     capture = false,
-    timeoutMs = DEFAULT_TIMEOUT_MS,
+    timeoutMs = action.timeoutMs ?? DEFAULT_TIMEOUT_MS,
   } = options;
 
   if ((action.interactive || action.longRunning) && !allowInteractive) {
@@ -76,7 +76,7 @@ function runScript(action, args = [], options = {}) {
     let stderr = "";
     let timedOut = false;
 
-    const timer = capture
+    const timer = capture && timeoutMs > 0
       ? setTimeout(() => {
           timedOut = true;
           child.kill("SIGTERM");
@@ -145,13 +145,14 @@ async function runAction(actionId, args = [], options = {}) {
   }
 
   if (action.type === "script") {
-    if (action.requiresArgs && args.length === 0 && !options.allowInteractive) {
+    const finalArgs = [...(action.args || []), ...args];
+    if (action.requiresArgs && finalArgs.length === 0 && !options.allowInteractive) {
       return {
         ok: false,
         output: `Action requires arguments. Usage: ${action.usage}`,
       };
     }
-    return runScript(action, args, options);
+    return runScript(action, finalArgs, options);
   }
 
   return {

@@ -75,6 +75,9 @@ function botHelp() {
     "- start autosign",
     "- run todolist",
     "- run reliable-todolist",
+    "- run zhihuishu-help",
+    "- run zhihuishu-fetch",
+    "- run zhihuishu -c <courseId> --show_in_terminal",
     "- run webplus-save-doc -u https://example.zju.edu.cn/...",
   ].join("\n");
 }
@@ -194,7 +197,7 @@ async function runBotCommand(text) {
       };
     }
 
-    const timeoutMs = Number.parseInt(
+    const timeoutMs = action.botTimeoutMs ?? Number.parseInt(
       process.env.DINGTALK_BOT_RUN_TIMEOUT_MS || String(DEFAULT_TIMEOUT_MS),
       10
     );

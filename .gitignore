@@ -82,6 +82,16 @@ web_modules/
 .env.production.local
 .env.local
 
+# Zhihuishu runtime data
+__pycache__/
+*.pyc
+zhihuishu/.venv/
+zhihuishu/config.json
+zhihuishu/cookies.json
+zhihuishu/execution.json
+zhihuishu/aiexamAnswer/
+zhihuishu/*.log
+
 # parcel-bundler cache (https://parceljs.org/)
 .cache
 .parcel-cache

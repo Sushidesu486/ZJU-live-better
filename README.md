@@ -73,6 +73,9 @@ urgent
 actions
 run todolist
 run reliable-todolist
+run zhihuishu-help
+run zhihuishu-fetch
+run zhihuishu -c <courseId> --show_in_terminal
 run webplus-save-doc -u https://example.zju.edu.cn/...
 test
 stop
@@ -104,6 +107,25 @@ stop
 | 功能 | 说明 |
 | --- | --- |
 | ☆`bookList` | 查询已借阅图书并操作续借 |
+
+### 智慧树/知到相关（`zhihuishu/`）
+
+智慧树功能来自 `fuckZHS` Python 工具，源码以 MIT License vendored 在 `zhihuishu/`。首次使用先安装 Python 依赖：
+
+```bash
+zbl run zhihuishu-install
+```
+
+常用命令：
+
+```bash
+zbl run zhihuishu-help
+zbl run zhihuishu-fetch
+zbl run zhihuishu -c <courseId> --show_in_terminal
+zbl run zhihuishu -ai <courseId> <classId>
+```
+
+配置、登录缓存和课程清单位于 `zhihuishu/config.json`、`zhihuishu/cookies.json`、`zhihuishu/execution.json`，这些文件不会提交。首次登录通常需要二维码，服务器环境建议加 `--show_in_terminal`。
 
 
 ## 反馈

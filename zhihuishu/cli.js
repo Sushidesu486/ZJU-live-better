@@ -16,7 +16,10 @@ function resolvePython() {
   return process.env.PYTHON || "python3";
 }
 
-const args = process.argv.slice(2);
+const rawArgs = process.argv.slice(2);
+const args = rawArgs.includes("--show_in_terminal")
+  ? rawArgs
+  : [...rawArgs, "--show_in_terminal"];
 const child = spawn(resolvePython(), [path.join(__dirname, "main.py"), ...args], {
   cwd: __dirname,
   stdio: "inherit",

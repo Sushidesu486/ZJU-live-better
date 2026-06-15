@@ -76,6 +76,92 @@ function normalizeServiceId(value) {
   return value || "daemon";
 }
 
+function splitCommand(input) {
+  const tokens = [];
+  const pattern = /"([^"]*)"|'([^']*)'|(\S+)/g;
+  let match;
+  while ((match = pattern.exec(input)) !== null) {
+    tokens.push(match[1] ?? match[2] ?? match[3]);
+  }
+  return tokens;
+}
+
+async function promptActionArgs(action, args = []) {
+  if (args.length > 0 || !process.stdin.isTTY) return args;
+
+  if (action.id === "zhihuishu") {
+    const { mode } = await inquirer.prompt([
+      {
+        type: "list",
+        name: "mode",
+        message: "智慧树运行方式:",
+        choices: [
+          { name: "使用 execution.json / 自动处理已保存课程", value: "default" },
+          { name: "指定普通课程 ID", value: "course" },
+          { name: "指定 AI 课程 ID 和班级 ID", value: "ai" },
+          { name: "手动输入完整参数", value: "raw" },
+        ],
+      },
+    ]);
+
+    if (mode === "course") {
+      const { courseIds } = await inquirer.prompt([
+        {
+          type: "input",
+          name: "courseIds",
+          message: "课程 ID，多个用空格分隔:",
+          validate: (value) => value.trim() ? true : "请输入课程 ID",
+        },
+      ]);
+      return ["-c", ...splitCommand(courseIds)];
+    }
+
+    if (mode === "ai") {
+      const answer = await inquirer.prompt([
+        {
+          type: "input",
+          name: "courseId",
+          message: "AI 课程 ID:",
+          validate: (value) => value.trim() ? true : "请输入 AI 课程 ID",
+        },
+        {
+          type: "input",
+          name: "classId",
+          message: "班级 ID:",
+          validate: (value) => value.trim() ? true : "请输入班级 ID",
+        },
+      ]);
+      return ["-ai", answer.courseId.trim(), answer.classId.trim()];
+    }
+
+    if (mode === "raw") {
+      const { raw } = await inquirer.prompt([
+        {
+          type: "input",
+          name: "raw",
+          message: "main.py 参数:",
+          filter: (value) => value.trim(),
+        },
+      ]);
+      return splitCommand(raw);
+    }
+  }
+
+  if (action.requiresArgs) {
+    const { raw } = await inquirer.prompt([
+      {
+        type: "input",
+        name: "raw",
+        message: `参数 (${action.usage || action.id}):`,
+        filter: (value) => value.trim(),
+      },
+    ]);
+    return splitCommand(raw);
+  }
+
+  return args;
+}
+
 async function followLogs(serviceId = "daemon") {
   const logFile = latestLogFile(serviceId);
   if (!logFile) {
@@ -118,7 +204,8 @@ async function runActionFromCli(actionId, args = []) {
     return;
   }
 
-  const result = await runAction(action, args, {
+  const finalArgs = await promptActionArgs(action, args);
+  const result = await runAction(action, finalArgs, {
     allowInteractive: process.stdin.isTTY,
     capture: false,
     notify: true,

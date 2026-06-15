@@ -77,7 +77,7 @@ function botHelp() {
     "- run reliable-todolist",
     "- run zhihuishu-help",
     "- run zhihuishu-fetch",
-    "- run zhihuishu -c <courseId> --show_in_terminal",
+    "- run zhihuishu -c <courseId>",
     "- run webplus-save-doc -u https://example.zju.edu.cn/...",
   ].join("\n");
 }

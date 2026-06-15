@@ -75,7 +75,7 @@ run todolist
 run reliable-todolist
 run zhihuishu-help
 run zhihuishu-fetch
-run zhihuishu -c <courseId> --show_in_terminal
+run zhihuishu -c <courseId>
 run webplus-save-doc -u https://example.zju.edu.cn/...
 test
 stop
@@ -121,11 +121,11 @@ zbl run zhihuishu-install
 ```bash
 zbl run zhihuishu-help
 zbl run zhihuishu-fetch
-zbl run zhihuishu -c <courseId> --show_in_terminal
+zbl run zhihuishu -c <courseId>
 zbl run zhihuishu -ai <courseId> <classId>
 ```
 
-配置、登录缓存和课程清单位于 `zhihuishu/config.json`、`zhihuishu/cookies.json`、`zhihuishu/execution.json`，这些文件不会提交。首次登录通常需要二维码，服务器环境建议加 `--show_in_terminal`。
+配置、登录缓存和课程清单位于 `zhihuishu/config.json`、`zhihuishu/cookies.json`、`zhihuishu/execution.json`，这些文件不会提交。`zbl` 会默认以 `--show_in_terminal` 运行智慧树工具，首次登录会在终端显示二维码。
 
 
 ## 反馈

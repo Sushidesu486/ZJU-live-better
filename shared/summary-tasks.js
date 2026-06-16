@@ -1,59 +1,80 @@
-import { COURSES, ZJUAM, APILIB } from "login-zju";
-import dingTalk from "./dingtalk-webhook.js";
+import { ZJUAM, APILIB } from "login-zju";
+import { formatDateTime, getReliableTodos, timeLeft } from "./course-todos.js";
+
+const TODO_NOTIFY_CHARS = 3000;
+
+function chunkLines(header, lines, maxChars = TODO_NOTIFY_CHARS) {
+  if (lines.length === 0) return [header];
+
+  const chunks = [];
+  let current = [];
+  for (const line of lines) {
+    const candidate = [header, ...current, line].join("\n");
+    if (candidate.length > maxChars && current.length > 0) {
+      chunks.push(current);
+      current = [line];
+    } else {
+      current.push(line);
+    }
+  }
+  if (current.length > 0) chunks.push(current);
+
+  if (chunks.length === 1) return [`${header}\n${chunks[0].join("\n")}`];
+  return chunks.map((chunk, index) => (
+    `${header} (${index + 1}/${chunks.length})\n${chunk.join("\n")}`
+  ));
+}
+
+function todoLine(todo, index, now = new Date()) {
+  const source = todo.source === "pintia" ? "[pintia] " : "";
+  const due = todo.end_time
+    ? `${formatDateTime(todo.end_time)}，${timeLeft(todo.end_time, now)}`
+    : "No DDL";
+  return `${index + 1}. ${source}${todo.title} @ ${todo.course_name}\n   DDL: ${due}`;
+}
+
+function messagesToLog(messages) {
+  return Array.isArray(messages) ? messages.join("\n\n") : messages;
+}
 
 /**
  * 获取作业待办汇总
  * @param {boolean} urgentOnly - true: 仅24h内到期的任务
- * @returns {{ log: string, notify: string | null }}
+ * @returns {{ log: string, notify: string | string[] | null }}
  */
 export async function todoSummary(urgentOnly = false) {
-  const courses = new COURSES(
-    new ZJUAM(process.env.ZJU_USERNAME, process.env.ZJU_PASSWORD)
-  );
+  const { todos, errors } = await getReliableTodos();
 
-  const resp = await courses
-    .fetch("https://courses.zju.edu.cn/api/todos")
-    .then((v) => v.json());
-
-  const { todo_list } = resp;
-
-  if (!todo_list || todo_list.length === 0) {
-    return { log: "[Todolist] 无待办任务", notify: null };
+  if (todos.length === 0) {
+    const warning = errors.length > 0
+      ? `\n获取异常:\n${errors.map((error) => `- ${error}`).join("\n")}`
+      : "";
+    return { log: `[Todolist] 无待办任务${warning}`, notify: null };
   }
 
   const now = Date.now();
   const DAY = 24 * 60 * 60 * 1000;
-  const urgent = todo_list.filter((t) => new Date(t.end_time) - now < DAY);
-
-  function fmt(t) {
-    const delta = new Date(t.end_time) - now;
-    if (delta < 0) return "已过期";
-    const hours = Math.floor(delta / (1000 * 60 * 60));
-    if (hours < 24) return `${hours}小时`;
-    return `${Math.floor(hours / 24)}天`;
-  }
+  const urgent = todos.filter((todo) => todo.end_time && todo.end_time.getTime() - now < DAY);
+  const warningLines = errors.map((error) => `! 获取异常: ${error}`);
 
   if (urgentOnly) {
     if (urgent.length === 0) {
       return { log: "[Todolist] 无紧急任务", notify: null };
     }
-    const notify =
-      `[Todolist 紧急] ${urgent.length} 个任务即将到期(24h内):\n` +
-      urgent
-        .map((t) => `- ${t.title} @ ${t.course_name} (剩余${fmt(t)})`)
-        .join("\n");
-    return { log: notify, notify };
+    const notify = chunkLines(
+      `[Todolist 紧急] ${urgent.length} 个任务即将到期(24h内):`,
+      [...urgent.map((todo, index) => todoLine(todo, index, new Date(now))), ...warningLines]
+    );
+    return { log: messagesToLog(notify), notify };
   }
 
-  const notify =
-    `[Todolist] 你有 ${todo_list.length} 个待办任务` +
-    (urgent.length > 0
-      ? `\n其中 ${urgent.length} 个即将到期(24h内):\n` +
-        urgent
-          .map((t) => `- ${t.title} @ ${t.course_name} (剩余${fmt(t)})`)
-          .join("\n")
-      : "");
-  return { log: notify, notify };
+  const header = `[Todolist] 你有 ${todos.length} 个待办任务`
+    + (urgent.length > 0 ? `，其中 ${urgent.length} 个 24h 内到期:` : ":");
+  const notify = chunkLines(
+    header,
+    [...todos.map((todo, index) => todoLine(todo, index, new Date(now))), ...warningLines]
+  );
+  return { log: messagesToLog(notify), notify };
 }
 
 /**

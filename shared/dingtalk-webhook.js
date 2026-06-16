@@ -66,6 +66,13 @@ async function sendDingTalkText(msg, options = {}) {
 }
 
 async function dingTalk(msg) {
+  if (Array.isArray(msg)) {
+    const results = [];
+    for (const item of msg) {
+      results.push(await sendDingTalkText(item));
+    }
+    return results;
+  }
   return sendDingTalkText(msg);
 }
 

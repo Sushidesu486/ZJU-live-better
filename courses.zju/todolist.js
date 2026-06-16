@@ -1,64 +1,82 @@
-/* 获取学在浙大todo list */
+/* 获取学在浙大 todo list */
 
-import inquirer from "inquirer";
-import { COURSES, ZJUAM } from "login-zju";
+import "../shared/load-env.js";
 
-import "dotenv/config";
 import dingTalk from "../shared/dingtalk-webhook.js";
+import {
+  formatDueLine,
+  getCoursesApiTodos,
+  todoSortTime,
+} from "../shared/course-todos.js";
 
-const courses = new COURSES(
-  new ZJUAM(process.env.ZJU_USERNAME, process.env.ZJU_PASSWORD)
-);
+const MAX_NOTIFY_CHARS = 3000;
 
-function time_later(end){
-    const delta = end.getTime() - new Date().getTime();
-    // It returns string like '1 days' '23 mins' '1 hour'
-    const units = ['days', 'hours','minutes'];
-    let unit = units[0];
-    let value = Math.floor(delta / (1000 * 60 * 60 * 24));
-    if (value === 0) {
-        unit = units[1];
-        value = Math.floor(delta / (1000 * 60 * 60));
-        if (value === 0) {
-            unit = units[2];
-            value = Math.floor(delta / (1000 * 60));
-        }
-    }
-    return `${value} ${unit}`;
+function activityUrl(todo) {
+  return `https://courses.zju.edu.cn/course/${todo.course_id}/learning-activity#/${todo.id}`;
 }
 
+function chunkLines(header, lines, maxChars = MAX_NOTIFY_CHARS) {
+  if (lines.length === 0) return [header];
 
-courses.fetch("https://courses.zju.edu.cn/api/todos").then((v) => v.json()).then(/*things like {
-    "todo_list": [
-        {
-            "course_code": "(2024-2025-1)-MARX1002GH-0097194-1",
-            "course_id": 76325,
-            "course_name": "中国近现代史纲要（H）",
-            "course_type": 1,
-            "end_time": "2024-12-24T06:30:00Z",
-            "id": 932577,
-            "is_locked": false,
-            "is_student": true,
-            "prerequisites": [],
-            "title": "冬季论文作业提交",
-            "type": "homework"
-        }
-    ]
-}*/ ({todo_list}) => {
+  const chunks = [];
+  let current = [];
+  for (const line of lines) {
+    const candidate = [header, ...current, line].join("\n");
+    if (candidate.length > maxChars && current.length > 0) {
+      chunks.push(current);
+      current = [line];
+    } else {
+      current.push(line);
+    }
+  }
+  if (current.length > 0) chunks.push(current);
 
-    console.log(`You have ${todo_list.length} things to do:${todo_list.map((todo) =>`
+  if (chunks.length === 1) return [`${header}\n${chunks[0].join("\n")}`];
+  return chunks.map((chunk, index) => (
+    `${header} (${index + 1}/${chunks.length})\n${chunk.join("\n")}`
+  ));
+}
+
+function formatConsoleTodo(todo) {
+  return `
   - ${todo.title} @ ${todo.course_name}
-    Remains ${ time_later(new Date(todo.end_time)) } (DDL ${new Date(todo.end_time).toLocaleString()})
-    Go to https://courses.zju.edu.cn/course/${ todo.course_id }/learning-activity#/${ todo.id } to submit it.`).join("\n")}
+    ${formatDueLine(todo.end_time)}
+    Go to ${activityUrl(todo)} to submit it.`;
+}
+
+function formatNotifyTodo(todo, index) {
+  return `${index + 1}. ${todo.title} @ ${todo.course_name}\n   ${formatDueLine(todo.end_time)}`;
+}
+
+async function main() {
+  const todos = (await getCoursesApiTodos()).sort(
+    (a, b) => todoSortTime(a) - todoSortTime(b)
+  );
+
+  if (todos.length === 0) {
+    const message = "[Todolist] 无待办任务";
+    console.log("You have 0 things to do.");
+    await dingTalk(message);
+    return;
+  }
+
+  console.log(`You have ${todos.length} things to do:${todos.map(formatConsoleTodo).join("\n")}
 `);
 
-    // DingTalk notification
-    const urgent = todo_list.filter(t => new Date(t.end_time) - new Date() < 24 * 60 * 60 * 1000);
-    let notification = `[Todolist] 你有 ${todo_list.length} 个待办任务`;
-    if (urgent.length > 0) {
-      notification += `\n其中 ${urgent.length} 个即将到期（24h内）:\n`;
-      notification += urgent.map(t => `- ${t.title} @ ${t.course_name} (${time_later(new Date(t.end_time))})`).join('\n');
-    }
-    dingTalk(notification);
-    
-})
+  const now = Date.now();
+  const DAY = 24 * 60 * 60 * 1000;
+  const urgentCount = todos.filter((todo) => {
+    if (!todo.end_time) return false;
+    const delta = todo.end_time.getTime() - now;
+    return delta >= 0 && delta < DAY;
+  }).length;
+  const header = `[Todolist] 你有 ${todos.length} 个待办任务`
+    + (urgentCount > 0 ? `，其中 ${urgentCount} 个 24h 内到期:` : ":");
+
+  await dingTalk(chunkLines(header, todos.map(formatNotifyTodo)));
+}
+
+main().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});

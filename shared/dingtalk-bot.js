@@ -99,6 +99,32 @@ async function sendAsyncReply(body, text) {
   return sendDingTalkText(text, { force: true });
 }
 
+function chunkReplyText(text, maxChars = MAX_REPLY_CHARS) {
+  if (text.length <= maxChars) return [text];
+
+  const chunks = [];
+  let current = "";
+  for (const line of text.split("\n")) {
+    const next = current ? `${current}\n${line}` : line;
+    if (next.length > maxChars && current) {
+      chunks.push(current);
+      current = line;
+    } else {
+      current = next;
+    }
+  }
+  if (current) chunks.push(current);
+  return chunks;
+}
+
+async function sendAsyncReplies(body, text) {
+  const chunks = chunkReplyText(text);
+  for (let index = 0; index < chunks.length; index += 1) {
+    const prefix = chunks.length > 1 ? `[${index + 1}/${chunks.length}]\n` : "";
+    await sendAsyncReply(body, `${prefix}${chunks[index]}`);
+  }
+}
+
 async function runBotCommand(text) {
   const tokens = splitCommand(text);
   const command = tokens[0]?.toLowerCase();
@@ -257,10 +283,7 @@ function startDingTalkBotServer({ log = console.log } = {}) {
       res.json(dingTalkTextResponse(`收到: ${text}\n正在后台执行，完成后会返回结果。`));
       runBotCommand(text)
         .then(async (result) => {
-          await sendAsyncReply(
-            req.body,
-            truncateOutput(result.text, MAX_REPLY_CHARS)
-          );
+          await sendAsyncReplies(req.body, result.text);
           if (result.afterResponse) result.afterResponse();
         })
         .catch((error) => {

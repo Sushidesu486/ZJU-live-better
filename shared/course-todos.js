@@ -40,6 +40,23 @@ function expandActiveSemesterIds(semesters = []) {
   return [...new Set(activeSemesterIds)];
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function withRetry(fn, { attempts = 2, delayMs = 1200 } = {}) {
+  let lastError;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error;
+      if (attempt < attempts) await sleep(delayMs);
+    }
+  }
+  throw lastError;
+}
+
 async function getCoursesZjuTodos() {
   const courses = new COURSES(
     new ZJUAM(process.env.ZJU_USERNAME, process.env.ZJU_PASSWORD)
@@ -162,6 +179,48 @@ async function getCoursesZjuTodos() {
   return todos;
 }
 
+async function getCoursesApiTodos() {
+  const courses = new COURSES(
+    new ZJUAM(process.env.ZJU_USERNAME, process.env.ZJU_PASSWORD)
+  );
+  const resp = await courses
+    .fetch("https://courses.zju.edu.cn/api/todos")
+    .then((response) => response.json());
+  const now = new Date();
+
+  return (resp.todo_list || [])
+    .filter((todo) => !todo.end_time || new Date(todo.end_time) > now)
+    .map((todo) => ({
+      title: todo.title,
+      course_name: todo.course_name,
+      course_id: todo.course_id,
+      id: todo.id,
+      end_time: todo.end_time ? new Date(todo.end_time) : null,
+      type: todo.type || "todo",
+      source: "courses.zju",
+    }));
+}
+
+async function getCoursesTodosWithFallback() {
+  try {
+    const todos = await withRetry(() => getCoursesZjuTodos());
+    return { todos, warnings: [] };
+  } catch (error) {
+    const reliableError = error?.message || String(error);
+    try {
+      const todos = await withRetry(() => getCoursesApiTodos());
+      return {
+        todos,
+        warnings: [`学在浙大可靠待办获取失败，已回退 /api/todos: ${reliableError}`],
+      };
+    } catch (fallbackError) {
+      throw new Error(
+        `学在浙大待办获取失败: ${reliableError}; /api/todos 回退失败: ${fallbackError?.message || fallbackError}`
+      );
+    }
+  }
+}
+
 async function fetchPintiaProblemSets(cookie, filter) {
   return axios.get("https://pintia.cn/api/problem-sets", {
     params: {
@@ -212,8 +271,8 @@ async function getPintiaTodos() {
 
 async function getReliableTodos() {
   const results = await Promise.allSettled([
-    getCoursesZjuTodos(),
-    getPintiaTodos(),
+    getCoursesTodosWithFallback(),
+    getPintiaTodos().then((todos) => ({ todos, warnings: [] })),
   ]);
   const errors = [];
   const todos = [];
@@ -222,7 +281,8 @@ async function getReliableTodos() {
     if (result.status === "rejected") {
       errors.push(result.reason?.message || String(result.reason));
     } else {
-      todos.push(...result.value);
+      todos.push(...result.value.todos);
+      errors.push(...result.value.warnings);
     }
   }
 
@@ -233,6 +293,7 @@ async function getReliableTodos() {
 export {
   formatDateTime,
   formatDueLine,
+  getCoursesApiTodos,
   getCoursesZjuTodos,
   getPintiaTodos,
   getReliableTodos,

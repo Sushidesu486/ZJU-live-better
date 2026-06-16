@@ -228,6 +228,24 @@ const actionCategories = [
     name: "钉钉机器人",
     actions: [
       {
+        id: "dingtalk-full",
+        aliases: ["notify-full", "push-full"],
+        name: "手动推送 - 全量汇总",
+        description: "获取待办和图书馆借阅汇总并发送到钉钉。",
+        type: "summary",
+        urgentOnly: false,
+        botRunnable: true,
+      },
+      {
+        id: "dingtalk-urgent",
+        aliases: ["notify-urgent", "push-urgent"],
+        name: "手动推送 - 紧急汇总",
+        description: "只获取即将到期的待办和图书并发送到钉钉。",
+        type: "summary",
+        urgentOnly: true,
+        botRunnable: true,
+      },
+      {
         id: "dingtalk-test",
         aliases: ["test", "测试"],
         name: "测试连接",

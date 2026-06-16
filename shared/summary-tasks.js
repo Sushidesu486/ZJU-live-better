@@ -46,10 +46,11 @@ export async function todoSummary(urgentOnly = false) {
   const { todos, errors } = await getReliableTodos();
 
   if (todos.length === 0) {
-    const warning = errors.length > 0
-      ? `\n获取异常:\n${errors.map((error) => `- ${error}`).join("\n")}`
-      : "";
-    return { log: `[Todolist] 无待办任务${warning}`, notify: null };
+    if (errors.length > 0) {
+      const notify = `[Todolist] 获取待办失败，未确认是否有作业:\n${errors.map((error) => `- ${error}`).join("\n")}`;
+      return { log: notify, notify };
+    }
+    return { log: "[Todolist] 无待办任务", notify: null };
   }
 
   const now = Date.now();
@@ -86,9 +87,14 @@ export async function bookSummary(urgentOnly = false) {
   const am = new ZJUAM(process.env.ZJU_USERNAME, process.env.ZJU_PASSWORD);
   const apilib = new APILIB(am);
 
-  await apilib
-    .fetch("http://api.lib.zju.edu.cn/aleph/bor-auth?CON_LNG=chi")
-    .catch(() => {});
+  try {
+    await apilib.fetch("http://api.lib.zju.edu.cn/aleph/bor-auth?CON_LNG=chi");
+  } catch (error) {
+    return {
+      log: `[图书馆] 登录失败: ${error.message}`,
+      notify: null,
+    };
+  }
   const borId = apilib.bor_id;
   if (!borId) {
     return { log: "[图书馆] 登录失败", notify: null };

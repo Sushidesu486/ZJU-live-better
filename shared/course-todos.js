@@ -1,7 +1,8 @@
-import "dotenv/config";
+import "./load-env.js";
 
 import axios from "axios";
-import { COURSES, ZJUAM } from "login-zju";
+import { COURSES } from "login-zju";
+import { createZjuam } from "./zju-auth.js";
 
 function timeLeft(end, now = new Date()) {
   if (!end) return "No DDL";
@@ -58,9 +59,7 @@ async function withRetry(fn, { attempts = 2, delayMs = 1200 } = {}) {
 }
 
 async function getCoursesZjuTodos() {
-  const courses = new COURSES(
-    new ZJUAM(process.env.ZJU_USERNAME, process.env.ZJU_PASSWORD)
-  );
+  const courses = new COURSES(createZjuam());
 
   const semestersResp = await courses.fetch(
     "https://courses.zju.edu.cn/api/my-semesters?fields=id,name,sort,is_active,code"
@@ -180,9 +179,7 @@ async function getCoursesZjuTodos() {
 }
 
 async function getCoursesApiTodos() {
-  const courses = new COURSES(
-    new ZJUAM(process.env.ZJU_USERNAME, process.env.ZJU_PASSWORD)
-  );
+  const courses = new COURSES(createZjuam());
   const resp = await courses
     .fetch("https://courses.zju.edu.cn/api/todos")
     .then((response) => response.json());

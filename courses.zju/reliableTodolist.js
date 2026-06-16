@@ -3,7 +3,7 @@
  * pintia.cn: 获取近期未截止的 problem sets
  */
 
-import "dotenv/config";
+import "../shared/load-env.js";
 
 import { formatDueLine, getReliableTodos } from "../shared/course-todos.js";
 

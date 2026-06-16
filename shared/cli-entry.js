@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import "dotenv/config";
+import "./load-env.js";
 
 import { spawn } from "child_process";
 import fs from "fs";

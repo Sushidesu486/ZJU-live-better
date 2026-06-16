@@ -1,5 +1,6 @@
-import { ZJUAM, APILIB } from "login-zju";
+import { APILIB } from "login-zju";
 import { formatDateTime, getReliableTodos, timeLeft } from "./course-todos.js";
+import { createZjuam } from "./zju-auth.js";
 
 const TODO_NOTIFY_CHARS = 3000;
 
@@ -84,8 +85,7 @@ export async function todoSummary(urgentOnly = false) {
  * @returns {{ log: string, notify: string | null }}
  */
 export async function bookSummary(urgentOnly = false) {
-  const am = new ZJUAM(process.env.ZJU_USERNAME, process.env.ZJU_PASSWORD);
-  const apilib = new APILIB(am);
+  const apilib = new APILIB(createZjuam());
 
   try {
     await apilib.fetch("http://api.lib.zju.edu.cn/aleph/bor-auth?CON_LNG=chi");

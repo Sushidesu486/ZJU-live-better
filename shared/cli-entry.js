@@ -23,6 +23,7 @@ import {
   serviceStatus,
   startService,
   stopService,
+  systemdLogArgs,
 } from "./service-manager.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -165,6 +166,21 @@ async function promptActionArgs(action, args = []) {
 async function followLogs(serviceId = "daemon") {
   const logFile = latestLogFile(serviceId);
   if (!logFile) {
+    const journalArgs = systemdLogArgs(serviceId, { follow: true, lines: 40 });
+    if (journalArgs) {
+      console.log(`Tailing systemd journal for ${serviceId} (Ctrl+C to exit)\n`);
+      await new Promise((resolve) => {
+        const child = spawn("journalctl", journalArgs, {
+          stdio: "inherit",
+        });
+        child.on("exit", () => resolve());
+        child.on("error", (error) => {
+          console.error(`Failed to read journal: ${error.message}`);
+          resolve();
+        });
+      });
+      return;
+    }
     console.error("No log files found");
     process.exitCode = 1;
     return;

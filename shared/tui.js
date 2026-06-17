@@ -3,6 +3,7 @@
 import "./load-env.js";
 
 import chalk from "chalk";
+import { spawn } from "child_process";
 import fs from "fs";
 import inquirer from "inquirer";
 import path from "path";
@@ -15,6 +16,7 @@ import {
   serviceStatus,
   startService,
   stopService,
+  systemdLogArgs,
 } from "./service-manager.js";
 
 async function pressAnyKey() {
@@ -31,6 +33,42 @@ async function pressAnyKey() {
 async function viewLogs(serviceId = "daemon") {
   const logFile = latestLogFile(serviceId);
   if (!logFile) {
+    const journalArgs = systemdLogArgs(serviceId, { follow: true, lines: 30 });
+    if (journalArgs) {
+      console.clear();
+      console.log(chalk.cyan(`=== systemd 日志 ${serviceId} ===`));
+      console.log(chalk.gray("按 q 返回菜单\n"));
+
+      const child = spawn("journalctl", journalArgs, {
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      child.stdout.on("data", (chunk) => process.stdout.write(chunk));
+      child.stderr.on("data", (chunk) => process.stderr.write(chunk));
+
+      await new Promise((resolve) => {
+        readline.emitKeypressEvents(process.stdin);
+        if (process.stdin.isTTY) process.stdin.setRawMode(true);
+        process.stdin.resume();
+        let done = false;
+        const cleanup = () => {
+          if (done) return;
+          done = true;
+          child.kill("SIGTERM");
+          process.stdin.off("keypress", onKeypress);
+          if (process.stdin.isTTY) process.stdin.setRawMode(false);
+          process.stdin.pause();
+          console.clear();
+          resolve();
+        };
+        const onKeypress = (str, key) => {
+          if (key && (key.name === "q" || (key.ctrl && key.name === "c"))) cleanup();
+        };
+        child.on("exit", cleanup);
+        process.stdin.on("keypress", onKeypress);
+      });
+      return;
+    }
+
     console.log(chalk.yellow("No logs found"));
     await pressAnyKey();
     return;

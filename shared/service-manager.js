@@ -64,6 +64,31 @@ function hasSystemdUnit(service) {
   return result.status === 0;
 }
 
+function systemdLogArgs(serviceId = "daemon", { follow = false, lines = 40 } = {}) {
+  const service = getServiceDefinition(serviceId);
+  if (!hasSystemdUnit(service)) return null;
+  return [
+    "--user",
+    "-u",
+    service.systemdUnit,
+    "-n",
+    String(lines),
+    "--no-pager",
+    ...(follow ? ["-f"] : []),
+  ];
+}
+
+function readSystemdJournal(serviceId = "daemon", lines = 40) {
+  const args = systemdLogArgs(serviceId, { lines });
+  if (!args) return null;
+  const result = spawnSync("journalctl", args, {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  if (result.status !== 0) return result.stderr.trim() || null;
+  return result.stdout.trim();
+}
+
 function controlSystemdUnit(service, action) {
   const result = runUserSystemctl([action, service.systemdUnit]);
   return {
@@ -300,12 +325,14 @@ export {
   getDaemonPid,
   getServiceDefinition,
   getServicePid,
+  hasSystemdUnit,
   latestLogFile,
   listServices,
   logsDir,
   pidFile,
   projectRoot,
   readLastLines,
+  readSystemdJournal,
   restartDaemon,
   restartService,
   serviceStatus,
@@ -313,4 +340,5 @@ export {
   startService,
   stopDaemon,
   stopService,
+  systemdLogArgs,
 };
